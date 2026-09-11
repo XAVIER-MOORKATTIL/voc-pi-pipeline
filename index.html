@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VOC-Pi Genomic Pipeline Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen p-6 font-sans">
+    <div class="max-w-4xl mx-auto space-y-8">
+        
+        <!-- Header -->
+        <header class="border-b border-gray-800 pb-4 flex justify-between items-end">
+            <div>
+                <h1 class="text-3xl font-bold text-teal-400 tracking-tight">Genomic Variant Classifier</h1>
+                <p class="text-gray-400 text-sm mt-1">Strict Sequence Equality Inspector & VOC-Pi Detector</p>
+            </div>
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-mono bg-teal-950 text-teal-300 border border-teal-800">
+                ● Pipeline Active
+            </span>
+        </header>
+
+        <!-- Notification Banner -->
+        <div id="errorAlert" class="hidden bg-red-950 border border-red-700 text-red-200 p-4 rounded-lg text-sm font-mono"></div>
+
+        <!-- Ingestion Form -->
+        <main class="bg-gray-900 border border-gray-800 rounded-xl p-6 shadow-xl">
+            <form id="sequenceForm" class="space-y-4">
+                <div>
+                    <label for="sampleId" class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">Sample Identifier</label>
+                    <input type="text" id="sampleId" placeholder="e.g., CLINICAL-SAMPLE-01" required
+                        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                </div>
+                <div>
+                    <label for="proteinSequence" class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">Protein Sequence (RBD Residues 331–553)</label>
+                    <textarea id="proteinSequence" rows="5" placeholder="Paste single-letter amino acid sequence (e.g. CPCGEV...)" required
+                        class="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-white font-mono text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 uppercase tracking-widest leading-relaxed"></textarea>
+                </div>
+                <button type="submit" id="submitBtn"
+                    class="w-full bg-teal-600 hover:bg-teal-500 text-white font-semibold py-2.5 px-4 rounded-lg transition duration-150 shadow-md">
+                    Analyze Sequence
+                </button>
+            </form>
+        </main>
+
+        <!-- Dynamic Results Panel -->
+        <section id="resultSection" class="hidden bg-gray-900 border border-gray-800 rounded-xl p-6 shadow-xl space-y-6">
+            <div class="flex justify-between items-center border-b border-gray-800 pb-3">
+                <h2 class="text-lg font-semibold text-gray-200">Analysis Results</h2>
+                <span id="resDbId" class="font-mono text-xs bg-gray-800 px-2 py-1 rounded text-gray-400"></span>
+            </div>
+
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div class="bg-gray-800/50 p-3 rounded-lg border border-gray-800">
+                    <p class="text-xs text-gray-400 mb-1">Status</p>
+                    <p id="resStatus" class="font-bold text-base"></p>
+                </div>
+                <div class="bg-gray-800/50 p-3 rounded-lg border border-gray-800">
+                    <p class="text-xs text-gray-400 mb-1">Classification</p>
+                    <p id="resClass" class="font-semibold text-gray-200 text-xs mt-1"></p>
+                </div>
+                <div class="bg-gray-800/50 p-3 rounded-lg border border-gray-800">
+                    <p class="text-xs text-gray-400 mb-1">Mutation Count</p>
+                    <p id="resCount" class="font-bold text-base text-gray-100"></p>
+                </div>
+                <div class="bg-gray-800/50 p-3 rounded-lg border border-gray-800">
+                    <p class="text-xs text-gray-400 mb-1">Divergence Rate</p>
+                    <p id="resDiv" class="font-bold text-base text-gray-100"></p>
+                </div>
+            </div>
+
+            <!-- HGVS Biological Notation -->
+            <div>
+                <div class="flex justify-between items-center mb-2">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-400">HGVS Mutation Notation</h3>
+                    <button id="downloadCsvBtn" class="bg-gray-800 hover:bg-gray-700 text-teal-400 border border-teal-800 text-xs px-2.5 py-1 rounded transition duration-150">
+                        Export CSV Audit
+                    </button>
+                </div>
+                <div id="hgvsTags" class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-3 bg-gray-950 rounded-lg border border-gray-800"></div>
+            </div>
+
+            <!-- Visual Residue Alignment Visualizer -->
+            <div>
+                <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Visual Residue Alignment (Mismatch Highlighted)</h3>
+                <div id="alignmentViewer" class="bg-gray-950 p-4 rounded-lg border border-gray-800 font-mono text-xs flex flex-wrap gap-1 max-h-48 overflow-y-auto leading-relaxed"></div>
+            </div>
+        </section>
+
+        <!-- Atlas Database Logs -->
+        <section class="bg-gray-900 border border-gray-800 rounded-xl p-6 shadow-xl">
+            <div class="flex justify-between items-center mb-4 border-b border-gray-800 pb-3">
+                <h2 class="text-lg font-semibold text-gray-200">Atlas Execution Logs</h2>
+                <button id="refreshLogs" class="bg-gray-800 hover:bg-gray-700 text-xs px-3 py-1.5 rounded-md font-medium text-gray-300 transition duration-150">Refresh Logs</button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm text-gray-300">
+                    <thead class="bg-gray-800 text-gray-400 uppercase text-xs font-mono">
+                        <tr>
+                            <th class="p-3 rounded-l-md">Sample ID</th>
+                            <th class="p-3">Status</th>
+                            <th class="p-3">Mutations</th>
+                            <th class="p-3">Divergence</th>
+                            <th class="p-3 rounded-r-md">Timestamp</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logsTableBody" class="divide-y divide-gray-800 font-mono text-xs">
+                        <tr><td colspan="5" class="p-4 text-center text-gray-500">Loading pipeline log history...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:3000';
+        const alertBox = document.getElementById('errorAlert');
+        let currentAnalysisRecord = null;
+
+        function showError(msg) {
+            alertBox.textContent = msg;
+            alertBox.classList.remove('hidden');
+        }
+
+        function hideError() {
+            alertBox.textContent = '';
+            alertBox.classList.add('hidden');
+        }
+
+        // Form Submission
+        document.getElementById('sequenceForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            hideError();
+
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.textContent = "Analyzing...";
+            submitBtn.disabled = true;
+
+            const payload = {
+                sampleId: document.getElementById('sampleId').value,
+                proteinSequence: document.getElementById('proteinSequence').value
+            };
+
+            try {
+                const response = await fetch(`${API_BASE}/api/analyze-variant`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    displayResults(data);
+                    loadHistory();
+                } else {
+                    if (data.violations) {
+                        const chars = data.violations.map(v => `'${v.character}' at pos ${v.position}`).join(', ');
+                        showError(`Validation Error: ${data.error} Invalid characters: [${chars}]`);
+                    } else {
+                        showError(`Error: ${data.error || "Analysis failed."}`);
+                    }
+                }
+            } catch (err) {
+                showError("Connection Error: Unable to communicate with API server at " + API_BASE);
+            } finally {
+                submitBtn.textContent = "Analyze Sequence";
+                submitBtn.disabled = false;
+            }
+        });
+
+        // Render Analysis Box, HGVS Badges & Visualizer
+        function displayResults(data) {
+            currentAnalysisRecord = data.analysis;
+
+            const resultSection = document.getElementById('resultSection');
+            const evaluation = data.analysis.vocPiEvaluation;
+            const vector = data.analysis.mutationVector;
+            
+            document.getElementById('resStatus').textContent = evaluation.status;
+            document.getElementById('resClass').textContent = evaluation.classification;
+            document.getElementById('resCount').textContent = vector.mutationCount;
+            document.getElementById('resDiv').textContent = vector.divergenceRate.toFixed(2) + '%';
+            document.getElementById('resDbId').textContent = `ID: ${data.insertedId}`;
+
+            const statusElem = document.getElementById('resStatus');
+            statusElem.className = evaluation.status === "ABSOLUTELY YES" ? "font-bold text-base text-red-500" : "font-bold text-base text-teal-400";
+
+            renderHGVSTags(vector.hgvsNotation);
+
+            if (data.referenceSequence && data.sampleSequence) {
+                renderAlignmentView(data.referenceSequence, data.sampleSequence);
+            }
+
+            resultSection.classList.remove('hidden');
+        }
+
+        // Populate HGVS Tags
+        function renderHGVSTags(hgvsList) {
+            const container = document.getElementById('hgvsTags');
+            if (!hgvsList || hgvsList.length === 0) {
+                container.innerHTML = `<span class="text-xs text-gray-500 font-mono">No mutations detected (100% Sequence Identity).</span>`;
+                return;
+            }
+            container.innerHTML = hgvsList.map(item => 
+                `<span class="bg-red-950/80 border border-red-800 text-red-300 font-mono text-xs px-2 py-0.5 rounded-md">${item}</span>`
+            ).join('');
+        }
+
+        // CSV Download Event Handler
+        document.getElementById('downloadCsvBtn').addEventListener('click', () => {
+            if (!currentAnalysisRecord || !currentAnalysisRecord.mutationVector.mutationDetails) return;
+            
+            const details = currentAnalysisRecord.mutationVector.mutationDetails;
+            let csv = "SampleID,Position,Ref,Alt,HGVS,Timestamp\n";
+            
+            details.forEach(m => {
+                csv += `"${currentAnalysisRecord.sampleId}",${m.position},"${m.ref}","${m.alt}","${m.hgvs}","${currentAnalysisRecord.timestamp}"\n`;
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `audit_${currentAnalysisRecord.sampleId}.csv`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+        });
+
+        // Render Character Alignment Grid
+        function renderAlignmentView(refSeq, sampleSeq) {
+            const container = document.getElementById('alignmentViewer');
+            container.innerHTML = '';
+
+            const minLength = Math.min(refSeq.length, sampleSeq.length);
+            let html = '';
+
+            for (let i = 0; i < minLength; i++) {
+                const isMatch = refSeq[i] === sampleSeq[i];
+                const pos = i + 331;
+                if (isMatch) {
+                    html += `<span class="bg-gray-900 border border-gray-800 text-gray-500 px-1 py-0.5 rounded" title="Pos ${pos}: ${refSeq[i]}">${sampleSeq[i]}</span>`;
+                } else {
+                    html += `<span class="bg-red-950 border border-red-600 text-red-200 font-bold px-1 py-0.5 rounded animate-pulse" title="Pos ${pos}: ${refSeq[i]} -> ${sampleSeq[i]}">${sampleSeq[i]}</span>`;
+                }
+            }
+
+            container.innerHTML = html;
+        }
+
+        // Fetch Execution History Logs from MongoDB Atlas
+        async function loadHistory() {
+            const tbody = document.getElementById('logsTableBody');
+
+            try {
+                const res = await fetch(`${API_BASE}/api/variants`);
+                if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
+                
+                const logs = await res.json();
+                
+                if (!Array.isArray(logs) || logs.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-500">No variant logs recorded.</td></tr>`;
+                    return;
+                }
+
+                tbody.innerHTML = logs.map(log => `
+                    <tr class="hover:bg-gray-800/40 transition duration-150">
+                        <td class="p-3 text-gray-200">${log.sampleId || 'UNKNOWN'}</td>
+                        <td class="p-3 font-bold ${log.vocPiEvaluation?.status === 'ABSOLUTELY YES' ? 'text-red-400' : 'text-teal-400'}">
+                            ${log.vocPiEvaluation?.status || 'N/A'}
+                        </td>
+                        <td class="p-3 text-gray-300">${log.mutationVector?.mutationCount ?? 0}</td>
+                        <td class="p-3 text-gray-300">${log.mutationVector?.divergenceRate ? log.mutationVector.divergenceRate.toFixed(1) : 0}%</td>
+                        <td class="p-3 text-gray-500">${log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : 'N/A'}</td>
+                    </tr>
+                `).join('');
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-400 font-semibold">Failed to fetch logs from database server.</td></tr>`;
+            }
+        }
+
+        document.getElementById('refreshLogs').addEventListener('click', loadHistory);
+        loadHistory();
+    </script>
+</body>
+</html>
